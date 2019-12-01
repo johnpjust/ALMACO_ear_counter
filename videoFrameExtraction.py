@@ -54,7 +54,7 @@ for file in vidFiles:
 
         imgs = np.stack(imgs)
         for ind, img in enumerate(imgs):
-            cv2.imwrite(os.path.join(path, 'frame' + str(ind) + '.jpg'), img)
+            cv2.imwrite(os.path.join(path, 'frame' + '%03d' % ind + '.jpg'), img)
         # imgs = imgs.reshape((imgs.shape[0], -1))
     count += 1
 

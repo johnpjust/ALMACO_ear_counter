@@ -4,6 +4,8 @@ import pathlib
 import os
 import string
 import numpy as np
+import sys
+from multiprocessing import Pool
 
 def get_label(file_path):
     # convert the path to a list of path components
@@ -31,30 +33,35 @@ def process_path(folder_path):
     label, idx = get_label(folder_path)
     # load the raw data from the file as a string
     imgs=[]
-    for file in glob.glob(os.path.join(folder_path, '*.jpg')):
-        img = tf.io.read_file(file)
-        img = decode_img(img)
-        imgs.append(img)
+    with tf.device('/device:CPU:0'):
+        for file in sorted(glob.glob(os.path.join(folder_path, '*.jpg'))):
+            img = tf.io.read_file(file)
+            img = decode_img(img)
+            imgs.append(img)
+    print("done   " + idx)
+    sys.stdout.flush()
     return np.stack(imgs), label, idx
 
-data_dir = glob.glob(r'T:\current\Projects\Deere\Harvester\Internal\HD Yield\2019\2019 Plot Combine Data\IA\AlmacoEarCounting\*')
-# allfiles = glob.glob(r'T:\current\Projects\Deere\Harvester\Internal\HD Yield\2019\2019 Plot Combine Data\IA\AlmacoEarCounting\**\*.jpg', recursive=True)
-out = []
-for dir in data_dir[47:]:
-    out.append(process_path(dir))
-    print("done   " + out[-1][-1])
+if __name__ == '__main__':
+    data_dir = glob.glob(r'Z:\current\Projects\Deere\Harvester\Internal\HD Yield\2019\2019 Plot Combine Data\IA\AlmacoEarCounting\*')
+    # allfiles = glob.glob(r'T:\current\Projects\Deere\Harvester\Internal\HD Yield\2019\2019 Plot Combine Data\IA\AlmacoEarCounting\**\*.jpg', recursive=True)
 
+    with Pool(8) as p:
+        out = p.map(process_path, sorted(data_dir))
 
-# imgs, labels, ids = [process_path(x) for x in data_dir]
+    # for dir in sorted(data_dir):
+    #     out.append(process_path(dir))
 
-######### create a tf.data.Dataset.from_tensor_slices object based on just the number of logs.  Then use it as a selector to preprocess the logs which are broadcast to the preprocessing function in different threads.
+    # imgs, labels, ids = [process_path(x) for x in data_dir]
 
-######## try reducing dimensionality and/or subtracting pixel modes to ease training process ##################
+    ######### create a tf.data.Dataset.from_tensor_slices object based on just the number of logs.  Then use it as a selector to preprocess the logs which are broadcast to the preprocessing function in different threads.
 
-##### consider dequantizing images during training #####
+    ######## try reducing dimensionality and/or subtracting pixel modes to ease training process ##################
 
-###### tf.signal.frame(np.random.uniform(size=(10,3)),3,1, axis=0) #############
-import pickle
-fp_ = r'C:\Users\justjo\Desktop\almaco_earcount_labeled_data.pkl'
-with open(fp_, "wb") as fp:   #Pickling
-    pickle.dump(out, fp)
+    ##### consider dequantizing images during training #####
+
+    ###### tf.signal.frame(np.random.uniform(size=(10,3)),3,1, axis=0) #############
+    import pickle
+    fp_ = r'Z:\current\Projects\Deere\Harvester\Internal\HD Yield\2019\2019 Plot Combine Data\IA\AlmacoEarCounting\almaco_earcount_labeled_data.pkl'
+    with open(fp_, "wb") as fp:   #Pickling
+        pickle.dump(out, fp)

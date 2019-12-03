@@ -9,7 +9,6 @@ import datetime
 import pathlib
 import json
 from lr_scheduler import *
-from tf_signal_frame import *
 
 def batch(iterable, n=1):
     l = len(iterable)
@@ -19,9 +18,6 @@ def batch(iterable, n=1):
 def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, args):
     epoch = args.start_epoch
     for epoch in range(args.start_epoch, args.start_epoch + args.epochs):
-
-        # t = tqdm(data_loader_train, smoothing=0, ncols=80)
-        train_loss = []
 
         for ind in np.random.permutation(len(data_loader_train)):
             x_mb = tf.signal.frame(data_loader_train[ind][0], 6, 1, axis=0)
@@ -40,7 +36,7 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
                     grads = [x1 + x2 for x1, x2 in zip(grads, tape.gradient(count_, model.trainable_variables))]
             # grads = [None if grad is None else tf.clip_by_norm(grad, clip_norm=args.clip_norm) for grad in grads]
             loss = count-y_mb
-            optimizer.apply_gradients(zip([2*loss*x for x in grads], model.trainable_variables))
+            global_step = optimizer.apply_gradients(zip([2*loss*x for x in grads], model.trainable_variables))
 
             tf.summary.scalar('loss/train', loss**2, tf.compat.v1.train.get_global_step())
 

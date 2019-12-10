@@ -10,6 +10,7 @@ import pathlib
 import json
 from lr_scheduler import *
 import more_itertools
+from windowed import windowed
 
 def batch(iterable, n=1):
     l = len(iterable)
@@ -20,57 +21,67 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
     epoch = args.start_epoch
     for epoch in range(args.start_epoch, args.start_epoch + args.epochs):
 
+        # print("train")
         train_loss = 0
+        # for ind in range(len(data_loader_train)):
         for ind in np.random.permutation(len(data_loader_train)):
             # x_mb = tf.signal.frame(data_loader_train[ind][0], args.num_frames, 1, axis=0)
-            x_mb = np.array(list(more_itertools.windowed(data_loader_train[ind][0], n=args.num_frames, step=1)))
-            y_mb = data_loader_train[ind][1]
-            count = 0
-            grads = [tf.zeros_like(x) for x in model.trainable_variables]
-            # gen = batch(x_mb, args.batch_size)
-            # x_ = next(gen)
-            # print("x_mb size:  " + str(x_mb.shape))
-            for x_ in batch(x_mb, args.batch_size):
-                with tf.GradientTape() as tape:
-                    count_ = tf.reduce_sum(model(x_))
-                count += count_
-                grads_ = tape.gradient(count_, model.trainable_variables)
-                grads = [x1 + x2 for x1, x2 in zip(grads, grads_)]
+            # x_mb = np.array(list(more_itertools.windowed(data_loader_train[ind][0], n=args.num_frames, step=1)))
+            for i_ in range(2):
+                if i_ == 0:
+                    x_mb = windowed(data_loader_train[ind][0], n=args.num_frames, step=1)
+                    y_mb = data_loader_train[ind][1]
+                else:
+                    x_mb = np.repeat(data_loader_train[0][0], args.num_frames, axis=-1)
+                    y_mb = 0
 
-            # grads = [None if grad is None else tf.clip_by_norm(grad, clip_norm=args.clip_norm) for grad in grads]
-            loss = count-y_mb
-            train_loss += tf.math.square(loss)
-            global_step = optimizer.apply_gradients(zip([2*loss*x for x in grads], model.trainable_variables))
+                count = 0
+                grads = [np.zeros_like(x) for x in model.trainable_variables]
+                for x_ in batch(x_mb, args.batch_size):
+                    with tf.GradientTape() as tape:
+                        count_ = tf.reduce_sum(model(x_))
+                    count += count_
+                    grads_ = tape.gradient(count_, model.trainable_variables)
+                    grads = [x1 + x2 for x1, x2 in zip(grads, grads_)]
 
-            tf.summary.scalar('loss/train', loss**2, tf.compat.v1.train.get_global_step())
+                # grads = [None if grad is None else tf.clip_by_norm(grad, clip_norm=args.clip_norm) for grad in grads]
+                loss = count-y_mb
+                globalstep = optimizer.apply_gradients(zip([2*loss*x for x in grads], model.trainable_variables))
 
-            tf.compat.v1.train.get_global_step().assign_add(1)
+                tf.summary.scalar('loss/train', loss**2, globalstep)
 
         ## potentially update batch norm variables manuallu
         ## variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='batch_normalization')
 
-        train_loss = tf.reduce_mean(train_loss)
-        validation_loss=0
+        # train_loss = tf.reduce_mean(train_loss)
+        validation_loss=[]
         for ind in range(len(data_loader_val)):
-            x_mb = np.array(list(more_itertools.windowed(data_loader_val[ind][0], n=args.num_frames, step=1)))
+            x_mb = windowed(data_loader_val[ind][0], n=args.num_frames, step=1)
             y_mb = data_loader_val[ind][1]
             count = 0
             for x_ in batch(x_mb, args.batch_size):
-                count_
-                validation_loss += tf.math.squared_difference(tf.reduce_sum(model(x_mb)), y_mb)
+                count += tf.reduce_sum(model(x_)).numpy()
+            validation_loss.append(tf.math.squared_difference(count, y_mb))
+        validation_loss = tf.reduce_mean(validation_loss)
+        # print("validation loss:  " + str(validation_loss))
 
-        test_loss=0
+        test_loss=[]
         for ind in range(len(data_loader_test)):
-            x_mb = np.array(list(more_itertools.windowed(data_loader_test[ind][0], n=args.num_frames, step=1)))
+            x_mb = windowed(data_loader_test[ind][0], n=args.num_frames, step=1)
             y_mb = data_loader_test[ind][1]
-            test_loss += tf.math.squared_difference(tf.reduce_sum(model(x_mb)), y_mb)
+            count = 0
+            for x_ in batch(x_mb, args.batch_size):
+                count += tf.reduce_sum(model(x_)).numpy()
+            test_loss.append(tf.math.squared_difference(count, y_mb))
+        test_loss = tf.reduce_mean(test_loss)
+        # print("test loss:  " + str(test_loss))
 
         stop = scheduler.on_epoch_end(epoch=epoch, monitor=validation_loss)
 
         #### tensorboard
-        tf.summary.scalar('loss/train', train_loss, tf.compat.v1.train.get_global_step())
-        tf.summary.scalar('loss/validation', validation_loss, tf.compat.v1.train.get_global_step())
-        tf.summary.scalar('loss/test', test_loss, tf.compat.v1.train.get_global_step())
+        # tf.summary.scalar('loss/train', train_loss, tf.compat.v1.train.get_global_step())
+        tf.summary.scalar('loss/validation', validation_loss, globalstep)
+        tf.summary.scalar('loss/test', test_loss, globalstep) ##tf.compat.v1.train.get_global_step()
 
         if stop:
             break
@@ -87,9 +98,9 @@ args = parser_()
 args.device = '/gpu:0'  # '/gpu:0'
 args.learning_rate = np.float32(1e-2)
 args.clip_norm = 0.1
-args.batch_size = 10 ## 6/50,
+args.batch_size = 200 ## 6/50,
 args.epochs = 5000
-args.patience = 10
+args.patience = 20
 args.load = ''
 args.tensorboard = r'D:\AlmacoEarCounts\Tensorboard'
 args.early_stopping = 500
@@ -131,12 +142,13 @@ data_loader_test = data[data_split_ind[int((1-args.p_val)*len(data_split_ind)):]
 ##### use keras functional api  https://www.tensorflow.org/guide/keras/functional
 ##### toy autoencoder & resnet model examples, among other things
 
-# bg=np.load(r'D:\AlmacoEarCounts\bg.npy')
-# for imgs in data_loader_train:
-#     imgs[0] = imgs[0] - bg
-# for imgs in data_loader_val:
-#     imgs[0] = imgs[0] - bg
-
+bg=np.load(r'D:\AlmacoEarCounts\bg.npy')
+for imgs in data_loader_train:
+    imgs[0] = imgs[0] - bg
+for imgs in data_loader_val:
+    imgs[0] = imgs[0] - bg
+for imgs in data_loader_test:
+    imgs[0] = imgs[0] - bg
 ########### setup GPU
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
@@ -152,39 +164,90 @@ if gpus:
         print(e)
 
 ######### Create Model
+# with tf.device('/gpu:0'):
+#     inputs = tf.keras.Input(shape=(108, 192, 3), name='img') ## (108, 192, 3)
+#     x = layers.Conv2D(16, 3, activation='relu')(inputs)
+#     x = layers.Conv2D(16, 3, activation='relu')(x)
+#     block_1_output = layers.MaxPooling2D(2)(x)
+#
+#     x = layers.Conv2D(16, 3, activation='relu', padding='same')(block_1_output)
+#     # x = layers.Conv2D(32, 3, activation='relu', padding='same')(x)
+#     x = layers.add([x, block_1_output])
+#     block_2_output = layers.MaxPooling2D(2)(x)
+#
+#     x = layers.Conv2D(16, 3, activation='relu', padding='same')(block_2_output)
+#     x = layers.add([x, block_2_output])
+#     block_3_output = layers.GlobalAveragePooling2D()(x)
+#
+#     cnn = tf.keras.Model(inputs, block_3_output, name='toy_resnet')
+#
+#     input_sequences = tf.keras.Input(shape=(6, 108, 192, 3)) ## (108, 192, 3)
+#     x = layers.TimeDistributed(cnn)(input_sequences)
+#     x = layers.Flatten()(x)
+#     x = layers.Dense(16, activation='relu')(x)
+#     x = layers.Dense(1)(x)
+#     counts = tf.keras.activations.softplus(x)
+#     model = tf.keras.Model(input_sequences, counts, name='toy_resnet')
+#     model.summary()
+
+# actfun = tf.nn.relu
+# with tf.device('/gpu:0'):
+#     inputs = tf.keras.Input(shape=(108, 192, 3*args.num_frames), name='img') ## (108, 192, 3)
+#     x = layers.Conv2D(32, 3, activation=actfun)(inputs)
+#     x = layers.Conv2D(32, 3, activation=actfun)(x)
+#     block_1_output = layers.MaxPooling2D(2)(x)
+#
+#     x = layers.Conv2D(32, 3, activation=actfun, padding='same')(block_1_output)
+#     # x = layers.Conv2D(32, 3, activation=actfun, padding='same')(x)
+#     x = layers.add([x, block_1_output])
+#     block_2_output = layers.MaxPooling2D(2)(x)
+#
+#     x = layers.Conv2D(32, 3, activation=actfun, padding='same')(block_2_output)
+#     # x = layers.Conv2D(32, 3, activation=actfun, padding='same')(x)
+#     x = layers.add([x, block_2_output])
+#     # block_3_output = layers.MaxPooling2D(2)(x)
+#     block_4_output = layers.GlobalAveragePooling2D()(x)
+#     #
+#     # x = layers.Conv2D(32, 3, activation=actfun, padding='same')(block_3_output)
+#     # # x = layers.Conv2D(32, 3, activation=actfun, padding='same')(x)
+#     # x = layers.add([x, block_3_output])
+#     # block_4_output = layers.GlobalAveragePooling2D()(x)
+#
+#     x = layers.Flatten()(block_4_output)
+#     x = layers.Dense(32, activation=actfun)(x)
+#     x = layers.Dense(1)(x)
+#     counts = tf.keras.activations.softplus(x)
+#     model = tf.keras.Model(inputs, counts, name='toy_resnet')
+#     model.summary()
+
+actfun = tf.nn.elu
 with tf.device('/gpu:0'):
-    inputs = tf.keras.Input(shape=(108, 192, 3), name='img') ## (108, 192, 3)
-    x = layers.Conv2D(16, 3, activation='relu')(inputs)
-    x = layers.Conv2D(16, 3, activation='relu')(x)
-    block_1_output = layers.MaxPooling2D(2)(x)
+    inputs = tf.keras.Input(shape=(108, 192, 3*args.num_frames), name='img') ## (108, 192, 3)
+    x = layers.Conv2D(32, 7, activation=actfun, strides=2)(inputs)
+    block_1_output = layers.MaxPooling2D(3, strides=2)(x)
 
-    x = layers.Conv2D(16, 3, activation='relu', padding='same')(block_1_output)
-    # x = layers.Conv2D(32, 3, activation='relu', padding='same')(x)
-    x = layers.add([x, block_1_output])
-    block_2_output = layers.MaxPooling2D(2)(x)
+    x = layers.Conv2D(32, 1, activation=actfun, padding='same')(block_1_output)
+    x = layers.Conv2D(32, 3, activation=None, padding='same')(x)
+    x = tf.nn.elu(layers.add([x, block_1_output]))
+    x = layers.Conv2D(32, 1, activation=actfun, padding='same')(x)
+    block_2_output = layers.AveragePooling2D(pool_size=2, strides=2)(x)
 
-    x = layers.Conv2D(16, 3, activation='relu', padding='same')(block_2_output)
-    x = layers.add([x, block_2_output])
-    block_3_output = layers.GlobalAveragePooling2D()(x)
+    x = layers.Conv2D(32, 1, activation=actfun, padding='same')(block_2_output)
+    x = layers.Conv2D(32, 3, activation=None, padding='same')(x)
+    x = tf.nn.elu(layers.add([x, block_2_output]))
+    x = layers.Conv2D(32, 1, activation=actfun, padding='same')(x)
+    x = layers.AveragePooling2D(2, strides=2)
 
-    cnn = tf.keras.Model(inputs, block_3_output, name='toy_resnet')
+    x = layers.Conv2D(32, 1, activation=actfun, padding='same')(block_2_output)
+    x = layers.Conv2D(32, 3, activation=None, padding='same')(x)
+    x = layers.GlobalAveragePooling2D()(x)
 
-    input_sequences = tf.keras.Input(shape=(6, 108, 192, 3)) ## (108, 192, 3)
-    x = layers.TimeDistributed(cnn)(input_sequences)
     x = layers.Flatten()(x)
-    x = layers.Dense(16, activation='relu')(x)
+    x = layers.Dense(32, activation=actfun)(x)
     x = layers.Dense(1)(x)
     counts = tf.keras.activations.softplus(x)
-    model = tf.keras.Model(input_sequences, counts, name='toy_resnet')
+    model = tf.keras.Model(inputs, counts, name='toy_resnet')
     model.summary()
-
-# for x_data in batch(np.random.uniform(size=(100,108,192,3)).astype(np.float32), 10):
-# for n in range(50):
-#     ##### exchange more_itertools with tf.signal.frame to get memory leak
-#     x_mb = tf.signal.frame(np.random.uniform(size=(200,108,192,3)).astype(np.float32), args.num_frames, 1, axis=0)
-#     for x_ in batch(x_mb, 10):
-#     ################# no memory leak with more_itertools for sliding window framing ###############
-#     # for x_ in batch(np.array(list(more_itertools.windowed(np.random.uniform(size=(100, 108, 192, 3)).astype(np.float32), n=6, step=1))),10):
 
 ###################################
 ## tensorboard and saving
@@ -210,11 +273,12 @@ if args.load:
 
 print('Creating scheduler..')
 # use baseline to avoid saving early on
-scheduler = EarlyStopping(model=model, patience=args.early_stopping, args=args, root=root)
+scheduler = EarlyStopping(model=model, patience=args.patience, args=args, root=root)
 
 with tf.device(args.device):
     train(model, optimizer, scheduler, data_loader_train, data_loader_val, data_loader_test, args)
 
 #### tensorboard --logdir=D:\AlmacoEarCounts\Tensorboard
 
+########### C:\Program Files\NVIDIA Corporation\NVSMI
 ######### nvidia-smi  -l 2

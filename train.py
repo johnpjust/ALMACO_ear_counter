@@ -39,12 +39,12 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
                 grads = [np.zeros_like(x) for x in model.trainable_variables]
                 for x_ in batch(x_mb, args.batch_size):
                     with tf.GradientTape() as tape:
-                        count_ = tf.reduce_sum(model(x_))
+                        count_ = tf.reduce_sum(model(x_, training=True))
                     count += count_
                     grads_ = tape.gradient(count_, model.trainable_variables)
                     grads = [x1 + x2 for x1, x2 in zip(grads, grads_)]
 
-                # grads = [None if grad is None else tf.clip_by_norm(grad, clip_norm=args.clip_norm) for grad in grads]
+                grads = [None if grad is None else tf.clip_by_norm(grad, clip_norm=args.clip_norm) for grad in grads]
                 loss = count-y_mb
                 globalstep = optimizer.apply_gradients(zip([2*loss*x for x in grads], model.trainable_variables))
 
@@ -60,7 +60,7 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
             y_mb = data_loader_val[ind][1]
             count = 0
             for x_ in batch(x_mb, args.batch_size):
-                count += tf.reduce_sum(model(x_)).numpy()
+                count += tf.reduce_sum(model(x_, training=False)).numpy()
             validation_loss.append(tf.math.squared_difference(count, y_mb))
         validation_loss = tf.reduce_mean(validation_loss)
         # print("validation loss:  " + str(validation_loss))
@@ -71,7 +71,7 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
             y_mb = data_loader_test[ind][1]
             count = 0
             for x_ in batch(x_mb, args.batch_size):
-                count += tf.reduce_sum(model(x_)).numpy()
+                count += tf.reduce_sum(model(x_, training=False)).numpy()
             test_loss.append(tf.math.squared_difference(count, y_mb))
         test_loss = tf.reduce_mean(test_loss)
         # print("test loss:  " + str(test_loss))
@@ -108,6 +108,8 @@ args.manualSeed = None
 args.manualSeedw = None
 args.p_val = 0.2
 args.num_frames = 6
+args.l2reg = 0.001
+args.l1reg = 0.001
 
 args.path = os.path.join(args.tensorboard,
                          'frames{}_{}'.format(args.num_frames,
@@ -221,30 +223,42 @@ if gpus:
 #     model.summary()
 
 actfun = tf.nn.elu
+# reg = tf.keras.regularizers.l2(l=args.l2reg)
+reg = None
+args.use_bias = False
+args.momentum = 0.9
 with tf.device('/gpu:0'):
     inputs = tf.keras.Input(shape=(108, 192, 3*args.num_frames), name='img') ## (108, 192, 3)
-    x = layers.Conv2D(32, 7, activation=actfun, strides=2)(inputs)
-    block_1_output = layers.MaxPooling2D(3, strides=2)(x)
+    x = layers.Conv2D(32, 7, activation=actfun, strides=2, kernel_regularizer=reg)(inputs)
+    block_output = layers.MaxPooling2D(3, strides=2)(x)
 
-    x = layers.Conv2D(32, 1, activation=actfun, padding='same')(block_1_output)
-    x = layers.Conv2D(32, 3, activation=None, padding='same')(x)
-    x = tf.nn.elu(layers.add([x, block_1_output]))
-    x = layers.Conv2D(32, 1, activation=actfun, padding='same')(x)
-    block_2_output = layers.AveragePooling2D(pool_size=2, strides=2)(x)
+    x = layers.Conv2D(32, 1, activation=None, padding='same', kernel_regularizer=reg, use_bias=args.use_bias)(block_output)
+    x = layers.BatchNormalization(momentum=args.momentum)(x)
+    x = actfun(x)
+    x = layers.Conv2D(32, 3, activation=None, padding='same', kernel_regularizer=reg)(x)
+    x = tf.nn.elu(layers.add([x, block_output]))
+    x = layers.Conv2D(32, 1, activation=actfun, padding='same', kernel_regularizer=reg)(x)
+    block_output = layers.AveragePooling2D(pool_size=2, strides=2)(x)
 
-    x = layers.Conv2D(32, 1, activation=actfun, padding='same')(block_2_output)
-    x = layers.Conv2D(32, 3, activation=None, padding='same')(x)
-    x = tf.nn.elu(layers.add([x, block_2_output]))
-    x = layers.Conv2D(32, 1, activation=actfun, padding='same')(x)
+    x = layers.Conv2D(32, 1, activation=None, padding='same', kernel_regularizer=reg, use_bias=args.use_bias)(block_output)
+    x = layers.BatchNormalization(momentum=args.momentum)(x)
+    x = actfun(x)
+    x = layers.Conv2D(32, 3, activation=None, padding='same', kernel_regularizer=reg)(x)
+    x = tf.nn.elu(layers.add([x, block_output]))
+    x = layers.Conv2D(32, 1, activation=actfun, padding='same', kernel_regularizer=reg)(x)
     x = layers.AveragePooling2D(2, strides=2)
 
-    x = layers.Conv2D(32, 1, activation=actfun, padding='same')(block_2_output)
-    x = layers.Conv2D(32, 3, activation=None, padding='same')(x)
+    x = layers.Conv2D(32, 1, activation=None, padding='same', kernel_regularizer=reg, use_bias=args.use_bias)(block_output)
+    x = layers.BatchNormalization(momentum=args.momentum)(x)
+    x = actfun(x)
+    x = layers.Conv2D(32, 3, activation=None, padding='same', kernel_regularizer=reg)(x)
     x = layers.GlobalAveragePooling2D()(x)
 
     x = layers.Flatten()(x)
-    x = layers.Dense(32, activation=actfun)(x)
-    x = layers.Dense(1)(x)
+    x = layers.Dense(32, activation=None, kernel_regularizer=reg)(x)
+    x = layers.BatchNormalization(momentum=args.momentum)(x)
+    x = actfun(x)
+    x = layers.Dense(1, kernel_regularizer=reg)(x)
     counts = tf.keras.activations.softplus(x)
     model = tf.keras.Model(inputs, counts, name='toy_resnet')
     model.summary()

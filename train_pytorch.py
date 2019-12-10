@@ -1,6 +1,5 @@
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras import layers
 from scipy import ndimage, stats
 from skimage import io
 import glob
@@ -38,9 +37,9 @@ class TimeDistributed(nn.Module):
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(3, 6, 5)
-        self.pool = nn.MaxPool2d(2, 2)
-        self.conv2 = nn.Conv2d(6, 16, 5)
+        self.conv1 = nn.Conv2d(in_channels=3, out_channels=32, kernel_size=7, stride=2)
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.conv2 = nn.Conv2d(in_channels=32, out_channels=32, kernel_size=7, stride=2)
         self.fc1 = nn.Linear(16 * 5 * 5, 120)
         self.fc2 = nn.Linear(120, 84)
         self.fc3 = nn.Linear(84, 1)
@@ -75,12 +74,13 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
             grads = [np.zeros_like(x) for x in model.trainable_variables]
 
             for x_ in batch(x_mb, args.device, args.batch_size):
+                x_ = torch.from_numpy(x_).float().to(device)
                 with tf.GradientTape() as tape:
                     count_ = tf.reduce_sum(model(x_))
                 count += count_
                 grads_ = tape.gradient(count_, model.trainable_variables)
                 grads = [x1 + x2 for x1, x2 in zip(grads, grads_)]
-            img = torch.from_numpy(data_loader_train[0][0][0]).float().to(device)
+
             # grads = [None if grad is None else tf.clip_by_norm(grad, clip_norm=args.clip_norm) for grad in grads]
             loss = count-y_mb
             globalstep = optimizer.apply_gradients(zip([2*loss*x for x in grads], model.trainable_variables))
@@ -193,57 +193,10 @@ args.device = torch.device("cuda:0")
 # model.to(device)
 # mytensor = my_tensor.to(device)
 
-#
-# ######### Create Model
-# with tf.device('/gpu:0'):
-#     inputs = tf.keras.Input(shape=(108, 192, 3), name='img') ## (108, 192, 3)
-#     x = layers.Conv2D(16, 3, activation='relu')(inputs)
-#     x = layers.Conv2D(16, 3, activation='relu')(x)
-#     block_1_output = layers.MaxPooling2D(2)(x)
-#
-#     x = layers.Conv2D(16, 3, activation='relu', padding='same')(block_1_output)
-#     # x = layers.Conv2D(32, 3, activation='relu', padding='same')(x)
-#     x = layers.add([x, block_1_output])
-#     block_2_output = layers.MaxPooling2D(2)(x)
-#
-#     x = layers.Conv2D(16, 3, activation='relu', padding='same')(block_2_output)
-#     x = layers.add([x, block_2_output])
-#     block_3_output = layers.GlobalAveragePooling2D()(x)
-#
-#     cnn = tf.keras.Model(inputs, block_3_output, name='toy_resnet')
-#
-#     input_sequences = tf.keras.Input(shape=(6, 108, 192, 3)) ## (108, 192, 3)
-#     x = layers.TimeDistributed(cnn)(input_sequences)
-#     x = layers.Flatten()(x)
-#     x = layers.Dense(16, activation='relu')(x)
-#     x = layers.Dense(1)(x)
-#     counts = tf.keras.activations.softplus(x)
-#     model = tf.keras.Model(input_sequences, counts, name='toy_resnet')
-#     model.summary()
-
-######### Create Model
-with tf.device('/gpu:0'):
-    inputs = tf.keras.Input(shape=(108, 192, 3*args.num_frames), name='img') ## (108, 192, 3)
-    x = layers.Conv2D(32, 3, activation='relu')(inputs)
-    x = layers.Conv2D(32, 3, activation='relu')(x)
-    block_1_output = layers.MaxPooling2D(2)(x)
-
-    x = layers.Conv2D(32, 3, activation='relu', padding='same')(block_1_output)
-    # x = layers.Conv2D(32, 3, activation='relu', padding='same')(x)
-    x = layers.add([x, block_1_output])
-    block_2_output = layers.MaxPooling2D(2)(x)
-
-    x = layers.Conv2D(32, 3, activation='relu', padding='same')(block_2_output)
-    x = layers.add([x, block_2_output])
-    block_3_output = layers.GlobalAveragePooling2D()(x)
-
-    x = layers.Flatten()(block_3_output)
-    x = layers.Dense(32, activation='relu')(x)
-    x = layers.Dense(1)(x)
-    counts = tf.keras.activations.softplus(x)
-    model = tf.keras.Model(inputs, counts, name='toy_resnet')
-    model.summary()
-
+########### create model
+net = Net()
+crnn = TimeDistributed(net)
+crnn.to(args.device)
 ###################################
 ## tensorboard and saving
 # writer = tf.summary.create_file_writer(args.path)
@@ -277,55 +230,3 @@ with tf.device(args.device):
 #### tensorboard --logdir=D:\AlmacoEarCounts\Tensorboard
 
 ######### nvidia-smi  -l 2
-
-# for x_data in batch(np.random.uniform(size=(100,108,192,3)).astype(np.float32), 10):
-# for n in range(1000):
-#     ##### exchange more_itertools with tf.signal.frame to get memory leak
-#     # x_mb = tf.signal.frame(np.random.uniform(size=(200,108,192,3)).astype(np.float32), args.num_frames, 1, axis=0)
-#     # for x_ in batch(x_mb, 10):
-#     ################# no memory leak with more_itertools for sliding window framing ###############
-#     print("count:  " + str(n))
-#     for x_ in batch(np.array(list(more_itertools.windowed(np.random.uniform(size=(100, 108, 192, 3)).astype(np.float32), n=args.num_frames, step=1))), args.batch_size):
-#         y_mb = np.random.randint(20,40)
-#         count = 0
-#         grads = [np.zeros_like(x) for x in model.trainable_variables]
-#         with tf.GradientTape() as tape:
-#             count_ = tf.reduce_sum(model(x_))
-#         count += count_
-#         grads_ = tape.gradient(count_, model.trainable_variables)
-#         grads = [x1 + x2 for x1, x2 in zip(grads, grads_)]
-#
-#     # grads = [None if grad is None else tf.clip_by_norm(grad, clip_norm=args.clip_norm) for grad in grads]
-#     loss = count - y_mb
-#     globalstep = optimizer.apply_gradients(zip([2 * loss * x for x in grads], model.trainable_variables))
-
-data_loader_train = np.random.uniform(size=(100, 120, 108, 192, 3)).astype(np.float32)
-
-indcount = 0
-for epoch in range(args.epochs):
-    train_loss = 0
-    for ind in range(len(data_loader_train)):
-    # for ind in np.random.permutation(len(data_loader_train)):
-    #     print(r'epoch:  %i,   index:  %i' % (epoch, ind), end="\r")
-        print(r'indcount:  %i' % indcount, end="\r")
-        # x_mb = np.array(list(more_itertools.windowed(data_loader_train[ind][0], n=args.num_frames, step=1)))
-        # y_mb = data_loader_train[ind][1]
-        x_mb = np.array([np.concatenate(x, axis=2) for x in list(more_itertools.windowed(data_loader_train[ind], n=args.num_frames, step=1))])
-        y_mb = np.random.randint(20,40)
-        count = 0
-        grads = [np.zeros_like(x) for x in model.trainable_variables]
-        # print("index:  " + str(ind))
-        for x_ in batch(x_mb, args.batch_size):
-            indcount += 1
-            with tf.GradientTape() as tape:
-                count_ = tf.reduce_sum(model(x_))
-            count += count_
-            grads_ = tape.gradient(count_, model.trainable_variables)
-            grads = [x1 + x2 for x1, x2 in zip(grads, grads_)]
-
-        # grads = [None if grad is None else tf.clip_by_norm(grad, clip_norm=args.clip_norm) for grad in grads]
-        loss = count-y_mb
-        globalstep = optimizer.apply_gradients(zip([2*loss*x for x in grads], model.trainable_variables))
-
-        tf.summary.scalar('loss/train', loss**2, globalstep)
-## after 5 epochs

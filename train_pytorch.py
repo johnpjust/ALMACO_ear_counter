@@ -10,9 +10,10 @@ import json
 from lr_scheduler import *
 import more_itertools
 import torch
-import torchvision
+# import torchvision
 import torch.nn as nn
 import torch.nn.functional as F
+from torchsummary import summary
 
 
 class TimeDistributed(nn.Module):
@@ -38,15 +39,18 @@ class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
         self.conv1 = nn.Conv2d(in_channels=3, out_channels=32, kernel_size=7, stride=2)
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.conv2 = nn.Conv2d(in_channels=32, out_channels=32, kernel_size=7, stride=2)
+        self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.conv2 = nn.Conv2d(in_channels=32, out_channels=32, kernel_size=1)
+        self.conv3 = nn.Conv2d(in_channels=32, out_channels=32, kernel_size=3, padding=1)
+
         self.fc1 = nn.Linear(16 * 5 * 5, 120)
         self.fc2 = nn.Linear(120, 84)
         self.fc3 = nn.Linear(84, 1)
 
-    def forward(self, x):
-        x = self.pool(F.relu(self.conv1(x)))
-        x = self.pool(F.relu(self.conv2(x)))
+    def forward(self, x): ##input (108, 192, 3)
+        x1 = self.maxpool(F.relu(self.conv1(x)))
+        x = F.relu(self.conv2(x1))
+        x = self.conv3
         x = x.view(-1, 16 * 5 * 5)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
@@ -195,8 +199,13 @@ args.device = torch.device("cuda:0")
 
 ########### create model
 net = Net()
+summary(net, (3, 108, 192))
+
 crnn = TimeDistributed(net)
 crnn.to(args.device)
+summary(crnn, (3, 108, 192))
+
+
 ###################################
 ## tensorboard and saving
 # writer = tf.summary.create_file_writer(args.path)

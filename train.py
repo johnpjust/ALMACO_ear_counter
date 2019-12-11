@@ -11,6 +11,7 @@ import json
 from lr_scheduler import *
 import more_itertools
 from windowed import windowed
+from contextlib import redirect_stdout
 
 def batch(iterable, n=1):
     l = len(iterable)
@@ -108,8 +109,6 @@ args.manualSeed = None
 args.manualSeedw = None
 args.p_val = 0.2
 args.num_frames = 6
-args.l2reg = 0.001
-args.l1reg = 0.001
 
 args.path = os.path.join(args.tensorboard,
                          'frames{}_{}'.format(args.num_frames,
@@ -222,43 +221,31 @@ if gpus:
 #     model = tf.keras.Model(inputs, counts, name='toy_resnet')
 #     model.summary()
 
-actfun = tf.nn.elu
-# reg = tf.keras.regularizers.l2(l=args.l2reg)
-reg = None
-args.use_bias = False
-args.momentum = 0.9
+actfun = tf.nn.relu
 with tf.device('/gpu:0'):
     inputs = tf.keras.Input(shape=(108, 192, 3*args.num_frames), name='img') ## (108, 192, 3)
-    x = layers.Conv2D(32, 7, activation=actfun, strides=2, kernel_regularizer=reg)(inputs)
+    x = layers.Conv2D(32, 7, activation=actfun, strides=2)(inputs)
     block_output = layers.MaxPooling2D(3, strides=2)(x)
 
-    x = layers.Conv2D(32, 1, activation=None, padding='same', kernel_regularizer=reg, use_bias=args.use_bias)(block_output)
-    x = layers.BatchNormalization(momentum=args.momentum)(x)
-    x = actfun(x)
-    x = layers.Conv2D(32, 3, activation=None, padding='same', kernel_regularizer=reg)(x)
-    x = tf.nn.elu(layers.add([x, block_output]))
-    x = layers.Conv2D(32, 1, activation=actfun, padding='same', kernel_regularizer=reg)(x)
+    x = layers.Conv2D(32, 1, activation=actfun, padding='same')(block_output)
+    x = layers.Conv2D(32, 3, activation=None, padding='same')(x)
+    x = layers.add([x, block_output])
+    x = layers.Conv2D(32, 1, activation=actfun)(x)
     block_output = layers.AveragePooling2D(pool_size=2, strides=2)(x)
 
-    x = layers.Conv2D(32, 1, activation=None, padding='same', kernel_regularizer=reg, use_bias=args.use_bias)(block_output)
-    x = layers.BatchNormalization(momentum=args.momentum)(x)
-    x = actfun(x)
-    x = layers.Conv2D(32, 3, activation=None, padding='same', kernel_regularizer=reg)(x)
-    x = tf.nn.elu(layers.add([x, block_output]))
-    x = layers.Conv2D(32, 1, activation=actfun, padding='same', kernel_regularizer=reg)(x)
+    x = layers.Conv2D(32, 1, activation=actfun, padding='same')(block_output)
+    x = layers.Conv2D(32, 3, activation=None, padding='same')(x)
+    x = layers.add([x, block_output])
+    x = layers.Conv2D(32, 1, activation=actfun)(x)
     x = layers.AveragePooling2D(2, strides=2)
 
-    x = layers.Conv2D(32, 1, activation=None, padding='same', kernel_regularizer=reg, use_bias=args.use_bias)(block_output)
-    x = layers.BatchNormalization(momentum=args.momentum)(x)
-    x = actfun(x)
-    x = layers.Conv2D(32, 3, activation=None, padding='same', kernel_regularizer=reg)(x)
+    x = layers.Conv2D(32, 1, activation=actfun)(block_output)
+    x = layers.Conv2D(32, 3, activation=None)(x)
     x = layers.GlobalAveragePooling2D()(x)
 
     x = layers.Flatten()(x)
-    x = layers.Dense(32, activation=None, kernel_regularizer=reg)(x)
-    x = layers.BatchNormalization(momentum=args.momentum)(x)
-    x = actfun(x)
-    x = layers.Dense(1, kernel_regularizer=reg)(x)
+    x = layers.Dense(32, activation=actfun)(x)
+    x = layers.Dense(1)(x)
     counts = tf.keras.activations.softplus(x)
     model = tf.keras.Model(inputs, counts, name='toy_resnet')
     model.summary()
@@ -289,6 +276,10 @@ print('Creating scheduler..')
 # use baseline to avoid saving early on
 scheduler = EarlyStopping(model=model, patience=args.patience, args=args, root=root)
 
+with open(os.path.join(args.path, 'modelsummary.txt'), 'w') as f:
+    with redirect_stdout(f):
+        model.summary()
+
 with tf.device(args.device):
     train(model, optimizer, scheduler, data_loader_train, data_loader_val, data_loader_test, args)
 
@@ -296,3 +287,29 @@ with tf.device(args.device):
 
 ########### C:\Program Files\NVIDIA Corporation\NVSMI
 ######### nvidia-smi  -l 2
+
+
+dataset = data_loader_test
+validation_loss = []
+for ind in range(len(dataset)):
+    x_mb = windowed(dataset[ind][0], n=args.num_frames, step=1)
+    y_mb = dataset[ind][1]
+    count = []
+    for x_ in batch(x_mb, args.batch_size):
+        count.extend(model(x_, training=False).numpy())
+    validation_loss.append(count.copy())
+
+validation_loss = [np.squeeze(np.array(x__)) for x__ in validation_loss]
+with open(os.path.join(args.path, 'test.csv'),'w') as file:
+    for line in validation_loss:
+        file.write(','.join([str(x__) for x__ in line]))
+        file.write('\n')
+
+with open(os.path.join(args.path, 'test_y.csv'),'w') as file:
+    for line in dataset:
+        file.write(','.join([str(x__) for x__ in line[1:]]))
+        file.write('\n')
+
+
+## find empty conveyor sequences
+dist = [np.sqrt(np.sum(np.square(x__))) for x__ in data_loader_val[0][0]]

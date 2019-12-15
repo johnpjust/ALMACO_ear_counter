@@ -18,7 +18,7 @@ def batch(iterable, n=1):
     for ndx in range(0, l, n):
         yield iterable[ndx:min(ndx + n, l)]
 
-def train(model, optimizer, scheduler, data_loader_train, data_loader_val, data_loader_test, args, empty_logs):
+def train(model, optimizer, scheduler, data_loader_train, data_loader_val, data_loader_test, args, empty_logs_train, empty_logs_val, empty_logs_test):
     epoch = args.start_epoch
     for epoch in range(args.start_epoch, args.start_epoch + args.epochs):
 
@@ -33,7 +33,7 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_val, data_
                     x_mb = windowed(data_loader_train[ind][0], n=args.num_frames, step=1)
                     y_mb = data_loader_train[ind][1]
                 elif i_ == 0:
-                    x_mb = windowed(data_loader_train[ind][0][empty_logs[ind] == 0], n=args.num_frames, step=1)
+                    x_mb = windowed(data_loader_train[ind][0][empty_logs_train[ind] == 0], n=args.num_frames, step=1)
                     y_mb = 0
                 else:
                     x_mb = np.repeat(data_loader_train[0][0], args.num_frames, axis=-1)
@@ -62,23 +62,35 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_val, data_
         # train_loss = tf.reduce_mean(train_loss)
         validation_loss=[]
         for ind in range(len(data_loader_val)):
-            x_mb = windowed(data_loader_val[ind][0], n=args.num_frames, step=1)
-            y_mb = data_loader_val[ind][1]
-            count = 0
-            for x_ in batch(x_mb, args.batch_size):
-                count += tf.reduce_sum(model(x_, training=False)).numpy()
-            validation_loss.append(tf.math.squared_difference(count, y_mb))
+            for i_ in range(2):
+                if i_ == 1:
+                    x_mb = windowed(data_loader_val[ind][0], n=args.num_frames, step=1)
+                    y_mb = data_loader_val[ind][1]
+                else:
+                    x_mb = windowed(data_loader_val[ind][0][empty_logs_val[ind] == 0], n=args.num_frames, step=1)
+                    y_mb = 0
+
+                count = 0
+                for x_ in batch(x_mb, args.batch_size):
+                    count += tf.reduce_sum(model(x_, training=False)).numpy()
+                validation_loss.append(tf.math.squared_difference(count, y_mb))
         validation_loss = tf.reduce_mean(validation_loss)
         # print("validation loss:  " + str(validation_loss))
 
         test_loss=[]
         for ind in range(len(data_loader_test)):
-            x_mb = windowed(data_loader_test[ind][0], n=args.num_frames, step=1)
-            y_mb = data_loader_test[ind][1]
-            count = 0
-            for x_ in batch(x_mb, args.batch_size):
-                count += tf.reduce_sum(model(x_, training=False)).numpy()
-            test_loss.append(tf.math.squared_difference(count, y_mb))
+            for i_ in range(2):
+                if i_ == 1:
+                    x_mb = windowed(data_loader_test[ind][0], n=args.num_frames, step=1)
+                    y_mb = data_loader_test[ind][1]
+                else:
+                    x_mb = windowed(data_loader_test[ind][0][empty_logs_test[ind] == 0], n=args.num_frames, step=1)
+                    y_mb = 0
+
+                count = 0
+                for x_ in batch(x_mb, args.batch_size):
+                    count += tf.reduce_sum(model(x_, training=False)).numpy()
+                test_loss.append(tf.math.squared_difference(count, y_mb))
         test_loss = tf.reduce_mean(test_loss)
         # print("test loss:  " + str(test_loss))
 
@@ -127,11 +139,15 @@ if not args.load:
 
 ### import and setup data
 data = np.array(np.load(r'D:\AlmacoEarCounts\almaco_earcount_labeled_data.npy', allow_pickle=True))
+empty_logs=np.load(r'D:\AlmacoEarCounts\empty_log_indx.npy', allow_pickle=True)
 data_ = np.array(data)
 data_split_ind = np.random.permutation(len(data))
 data_loader_train = data[data_split_ind[:int((1-2*args.p_val)*len(data_split_ind))]]
+empty_logs_train = empty_logs[data_split_ind[:int((1-2*args.p_val)*len(data_split_ind))]]
 data_loader_val = data[data_split_ind[int((1-2*args.p_val)*len(data_split_ind)):int((1-args.p_val)*len(data_split_ind))]]
+empty_logs_val = empty_logs[data_split_ind[int((1-2*args.p_val)*len(data_split_ind)):int((1-args.p_val)*len(data_split_ind))]]
 data_loader_test = data[data_split_ind[int((1-args.p_val)*len(data_split_ind)):]]
+empty_logs_test = empty_logs[data_split_ind[int((1-args.p_val)*len(data_split_ind)):]]
 
 ########## get image background
 # for x in data_loader_train:
@@ -155,6 +171,8 @@ for imgs in data_loader_val:
     imgs[0] = imgs[0] - bg
 for imgs in data_loader_test:
     imgs[0] = imgs[0] - bg
+
+
 ########### setup GPU
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
@@ -286,7 +304,7 @@ with open(os.path.join(args.path, 'modelsummary.txt'), 'w') as f:
         model.summary()
 
 with tf.device(args.device):
-    train(model, optimizer, scheduler, data_loader_train, data_loader_val, data_loader_test, args)
+    train(model, optimizer, scheduler, data_loader_train, data_loader_val, data_loader_test, args, empty_logs_train, empty_logs_val, empty_logs_test)
 
 #### tensorboard --logdir=D:\AlmacoEarCounts\Tensorboard
 

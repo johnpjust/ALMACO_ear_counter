@@ -18,7 +18,7 @@ def batch(iterable, n=1):
     for ndx in range(0, l, n):
         yield iterable[ndx:min(ndx + n, l)]
 
-def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, args):
+def train(model, optimizer, scheduler, data_loader_train, data_loader_val, data_loader_test, args, empty_logs):
     epoch = args.start_epoch
     for epoch in range(args.start_epoch, args.start_epoch + args.epochs):
 
@@ -28,15 +28,19 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
         for ind in np.random.permutation(len(data_loader_train)):
             # x_mb = tf.signal.frame(data_loader_train[ind][0], args.num_frames, 1, axis=0)
             # x_mb = np.array(list(more_itertools.windowed(data_loader_train[ind][0], n=args.num_frames, step=1)))
-            for i_ in range(2):
-                if i_ == 0:
+            for i_ in range(3):
+                if i_ == 1:
                     x_mb = windowed(data_loader_train[ind][0], n=args.num_frames, step=1)
                     y_mb = data_loader_train[ind][1]
+                elif i_ == 0:
+                    x_mb = windowed(data_loader_train[ind][0][empty_logs[ind] == 0], n=args.num_frames, step=1)
+                    y_mb = 0
                 else:
                     x_mb = np.repeat(data_loader_train[0][0], args.num_frames, axis=-1)
                     y_mb = 0
 
                 count = 0
+                batch = 0
                 grads = [np.zeros_like(x) for x in model.trainable_variables]
                 for x_ in batch(x_mb, args.batch_size):
                     with tf.GradientTape() as tape:
@@ -44,10 +48,11 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
                     count += count_
                     grads_ = tape.gradient(count_, model.trainable_variables)
                     grads = [x1 + x2 for x1, x2 in zip(grads, grads_)]
-
+                    batch += 1
                 grads = [None if grad is None else tf.clip_by_norm(grad, clip_norm=args.clip_norm) for grad in grads]
                 loss = count-y_mb
-                globalstep = optimizer.apply_gradients(zip([2*loss*x for x in grads], model.trainable_variables))
+                ## scale gradients by log length or number of batches (else longer logs will be weighted unduly)
+                globalstep = optimizer.apply_gradients(zip([2*loss*x/batch for x in grads], model.trainable_variables))
 
                 tf.summary.scalar('loss/train', loss**2, globalstep)
 

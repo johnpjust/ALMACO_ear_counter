@@ -179,6 +179,7 @@ bg=np.load(r'D:\AlmacoEarCounts\bg.npy')
 data = np.array(data)
 for imgs in data:
     imgs[0] = imgs[0] - bg
+
 data_split_ind = np.random.permutation(len(data))
 data_loader_train = data[data_split_ind[:int((1-2*args.p_val)*len(data_split_ind))]]
 empty_logs_train = empty_logs[data_split_ind[:int((1-2*args.p_val)*len(data_split_ind))]]

@@ -15,48 +15,67 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchsummary import summary
 
-
-class TimeDistributed(nn.Module):
-    def __init__(self, module, batch_first=False):
-        super(TimeDistributed, self).__init__()
-        self.module = module
-        self.batch_first = batch_first
-
-    def forward(self, x):
-        if len(x.size()) <= 2:
-            return self.module(x)
-        # Squash samples and timesteps into a single axis
-        x_reshape = x.contiguous().view(-1, x.size(-1))  # (samples * timesteps, input_size)
-        y = self.module(x_reshape)
-        # We have to reshape Y
-        if self.batch_first:
-            y = y.contiguous().view(x.size(0), -1, y.size(-1))  # (samples, timesteps, output_size)
-        else:
-            y = y.view(-1, x.size(1), y.size(-1))  # (timesteps, samples, output_size)
-        return y
-
-class Net(nn.Module):
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=32, kernel_size=7, stride=2)
-        self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.conv2 = nn.Conv2d(in_channels=32, out_channels=32, kernel_size=1)
-        self.conv3 = nn.Conv2d(in_channels=32, out_channels=32, kernel_size=3, padding=1)
-
-        self.fc1 = nn.Linear(16 * 5 * 5, 120)
-        self.fc2 = nn.Linear(120, 84)
-        self.fc3 = nn.Linear(84, 1)
+class CNN(nn.Module):
+    def __init__(self, channel_num=32, feat_out=6):
+        super(CNN, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels=3, out_channels=channel_num, kernel_size=7, stride=2)
+        self.maxpool1 = nn.MaxPool2d(kernel_size=3, stride=2)
+        self.conv2 = nn.Conv2d(in_channels=channel_num, out_channels=channel_num, kernel_size=1)
+        self.conv3 = nn.Conv2d(in_channels=channel_num,out_channels=channel_num, kernel_size=3, padding=1)
+        self.conv4 = nn.Conv2d(in_channels=channel_num, out_channels=channel_num, kernel_size=3)
+        self.maxpool2 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.avgpool1 = nn.AvgPool2d(kernel_size=2, stride=2)
+        self.conv_out = nn.Conv2d(in_channels=channel_num, out_channels=feat_out)
+        self.fc1 = nn.Linear(channel_num, channel_num//2)
+        self.fc_out = nn.Linear(channel_num//2, feat_out)
 
     def forward(self, x): ##input (108, 192, 3)
-        x1 = self.maxpool(F.relu(self.conv1(x)))
-        x = F.relu(self.conv2(x1))
-        x = self.conv3
-        x = x.view(-1, 16 * 5 * 5)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
+        block_output = self.maxpool1(F.relu(self.conv1(x)))
+
+        x = F.relu(self.conv2(block_output))
+        x = block_output + self.conv3(x)
+        x = F.relu(self.conv2(x))
+        block_output = self.avgpool1(x)
+
+        x = F.relu(self.conv2(block_output))
+        x = block_output + self.conv3(x)
+        x = F.relu(self.conv2(x))
+        block_output = self.avgpool1(x)
+
+        x = F.relu(self.conv2(block_output))
+        x = self.conv4(x)
+
+        ###### dense output
+        x = F.adaptive_avg_pool2d(x, (1, 1)) ## global average pooling
+        # x = F.adaptive_max_pool2d(x, (1,1))
+        x = x.view(x.size()[0], -1) ## flatten
+        x = F.elu(self.fc1(x))
+        out = self.fc_out(x)
+
+        # ###### conv output
+        # x = self.conv_out(x)
+        # out = F.adaptive_avg_pool2d(x, (1, 1)) ## global average pooling
+
+        return out
+
 ## net = Net()
+class Combine(nn.Module):
+    def __init__(self, cnn_feat_out=6):
+        super(Combine, self).__init__()
+        self.cnn = CNN()
+        self.fc1 = nn.Linear(cnn_feat_out, 10)
+        self.fc2 = nn.Linear(10, 1)
+
+    def forward(self, x):
+        ## reshape to simulate TF time-distributed-layer
+        batch_size, timesteps, C, H, W = x.size()
+        c_in = x.view(batch_size * timesteps, C, H, W)
+        c_out = self.cnn(c_in)
+        # fc1_in = c_out.view(batch_size, timesteps, -1)
+        fc1_in = c_out.view(batch_size, -1)
+        fc1_out = F.elu(self.fc1(fc1_in))
+        fc2_out = self.fc2(fc1_out)
+        return F.softplus(fc2_out)
 
 def batch(iterable, device, n=1):
     l = len(iterable)
@@ -78,7 +97,7 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
             grads = [np.zeros_like(x) for x in model.trainable_variables]
 
             for x_ in batch(x_mb, args.device, args.batch_size):
-                x_ = torch.from_numpy(x_).float().to(device)
+                x_ = torch.from_numpy(x_).float().to(args.device)
                 with tf.GradientTape() as tape:
                     count_ = tf.reduce_sum(model(x_))
                 count += count_
@@ -138,7 +157,7 @@ class parser_:
     pass
 
 args = parser_()
-args.device = '/gpu:0'  # '/gpu:0'
+args.device = 'cuda' #'/gpu:0'  # '/gpu:0'
 args.learning_rate = np.float32(1e-2)
 args.clip_norm = 0.1
 args.batch_size = 20 ## 6/50,

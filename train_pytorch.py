@@ -129,8 +129,9 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_val, data_
                 optimizer.step()
 
                 if i_ == 0:
-                    tf.summary.scalar('loss/train', loss.detach().cpu().numpy(), args.global_step)
-                    args.global_step += 1
+                    with tf.device('/cpu:0'):
+                        tf.summary.scalar('loss/train', loss.detach().cpu().numpy(), args.global_step)
+                        args.global_step += 1
 
         ## potentially update batch norm variables manuallu
         ## variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='batch_normalization')
@@ -207,12 +208,13 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_val, data_
 
         #### tensorboard
         # tf.summary.scalar('loss/train', train_loss, tf.compat.v1.train.get_global_step())
-        tf.summary.scalar('loss/validation', validation_loss, args.global_step)
-        tf.summary.scalar('loss/validation_empty', validation_loss_empty, args.global_step)
-        tf.summary.scalar('loss/validation_static', validation_loss_static, args.global_step)
-        tf.summary.scalar('loss/test', test_loss, args.global_step) ##tf.compat.v1.train.get_global_step()
-        tf.summary.scalar('loss/test_empty', test_loss_empty, args.global_step)  ##tf.compat.v1.train.get_global_step()
-        tf.summary.scalar('loss/test_static', test_loss_static, args.global_step)  ##tf.compat.v1.train.get_global_step()
+        with tf.device('/cpu:0'):
+            tf.summary.scalar('loss/validation', validation_loss, args.global_step)
+            tf.summary.scalar('loss/validation_empty', validation_loss_empty, args.global_step)
+            tf.summary.scalar('loss/validation_static', validation_loss_static, args.global_step)
+            tf.summary.scalar('loss/test', test_loss, args.global_step) ##tf.compat.v1.train.get_global_step()
+            tf.summary.scalar('loss/test_empty', test_loss_empty, args.global_step)  ##tf.compat.v1.train.get_global_step()
+            tf.summary.scalar('loss/test_static', test_loss_static, args.global_step)  ##tf.compat.v1.train.get_global_step()
 
         if stop:
             break
@@ -277,8 +279,9 @@ model = Combine(frames=args.num_frames)
 
 ###################################
 ## tensorboard and saving
-writer = tf.summary.create_file_writer(args.path)
-writer.set_as_default()
+with tf.device('/cpu:0'):
+    writer = tf.summary.create_file_writer(args.path)
+    writer.set_as_default()
 
 args.start_epoch = 0
 

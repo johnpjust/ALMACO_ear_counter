@@ -16,6 +16,7 @@ import torch.nn.functional as F
 from torchsummary import summary
 import torch.optim as optim
 from contextlib import redirect_stdout
+import torch_res_model
 # import more_itertools
 
 class CNN(nn.Module):
@@ -69,7 +70,8 @@ class CNN(nn.Module):
 class Combine(nn.Module):
     def __init__(self, frames, cnn_feat_out=6):
         super(Combine, self).__init__()
-        self.cnn = CNN(feat_out=cnn_feat_out)
+        # self.cnn = CNN(feat_out=cnn_feat_out)
+        self.cnn = torch_res_model.PreActResNet_small(cnn_feat_out)
         self.fc1 = nn.Linear(cnn_feat_out*frames, 10)
         self.fc2 = nn.Linear(10, 1)
 
@@ -95,6 +97,7 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_val, data_
 
         # print("train")
         # for ind in range(len(data_loader_train)):
+        model.train()
         for ind in np.random.permutation(len(data_loader_train)):
             # x_mb = tf.signal.frame(data_loader_train[ind][0], args.num_frames, 1, axis=0)
             # x_mb = np.array(list(more_itertools.windowed(data_loader_train[ind][0], n=args.num_frames, step=1)))
@@ -141,6 +144,7 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_val, data_
         ## potentially update batch norm variables manuallu
         ## variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='batch_normalization')
 
+        model.eval()
         # train_loss = tf.reduce_mean(train_loss)
         validation_loss = []
         validation_loss_static = []

@@ -57,16 +57,16 @@ class PreActBottleneck(nn.Module):
 
 
 class PreActResNet(nn.Module):
-    def __init__(self, block, num_blocks):
+    def __init__(self, block, num_blocks, cnn_feat_out=6):
         super(PreActResNet, self).__init__()
-        self.in_planes = 32
+        self.in_planes = 8
 
-        self.conv1 = nn.Conv2d(3, self.in_planes, kernel_size=7, stride=1, padding=1, bias=False)
-        self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
+        self.conv1 = nn.Conv2d(3, self.in_planes, kernel_size=7, stride=2, padding=0, bias=False)
+        self.layer1 = self._make_layer(block, 32, num_blocks[0], stride=1)
         # self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
         # self.layer3 = self._make_layer(block, 256, num_blocks[2], stride=2)
         # self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2)
-        self.linear = nn.Linear(64*block.expansion, 1)
+        self.linear = nn.Linear(32*block.expansion, cnn_feat_out)
 
     def _make_layer(self, block, planes, num_blocks, stride):
         strides = [stride] + [1]*(num_blocks-1)
@@ -89,8 +89,8 @@ class PreActResNet(nn.Module):
         return out
 
 
-def PreActResNet_small():
-    return PreActResNet(PreActBlock, [2,2,2,2])
+def PreActResNet_small(cnn_feat_out=6):
+    return PreActResNet(PreActBlock, [1,2,2,2], cnn_feat_out)
 
 def PreActResNet18():
     return PreActResNet(PreActBlock, [2,2,2,2])

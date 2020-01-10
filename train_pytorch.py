@@ -23,39 +23,43 @@ class CNN(nn.Module):
         super(CNN, self).__init__()
         self.conv1 = nn.Conv2d(in_channels=3, out_channels=channel_num, kernel_size=7, stride=2)
         self.maxpool1 = nn.MaxPool2d(kernel_size=3, stride=2)
+        self.avgpool1 = nn.AvgPool2d(kernel_size=3, stride=2)
         self.conv2 = nn.Conv2d(in_channels=channel_num, out_channels=channel_num, kernel_size=1)
         self.conv3 = nn.Conv2d(in_channels=channel_num,out_channels=channel_num, kernel_size=3, padding=1)
         self.conv4 = nn.Conv2d(in_channels=channel_num, out_channels=channel_num, kernel_size=3)
         self.maxpool2 = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.avgpool1 = nn.AvgPool2d(kernel_size=2, stride=2)
+        self.avgpool2 = nn.AvgPool2d(kernel_size=2, stride=2)
         self.conv_out = nn.Conv2d(kernel_size=3, in_channels=channel_num, out_channels=feat_out)
         self.fc1 = nn.Linear(channel_num, channel_num//2)
         self.fc_out = nn.Linear(channel_num//2, feat_out)
 
     def forward(self, x): ##input (108, 192, 3)
         block_output = self.maxpool1(F.relu(self.conv1(x)))
+        # block_output = self.avgpool1(F.relu(self.conv1(x)))
 
         x = F.relu(self.conv2(block_output))
         x = block_output + self.conv3(x)
         x = F.relu(self.conv2(x))
-        block_output = self.avgpool1(x)
+        # block_output = self.avgpool2(x)
+        block_output = self.maxpool2(x)
 
         x = F.relu(self.conv2(block_output))
         x = block_output + self.conv3(x)
         x = F.relu(self.conv2(x))
-        block_output = self.avgpool1(x)
+        # block_output = self.avgpool2(x)
+        block_output = self.maxpool2(x)
 
         x = F.relu(self.conv2(block_output))
         x = self.conv4(x)
 
-        ###### dense output
+        # ###### dense output
         x = F.adaptive_avg_pool2d(x, (1, 1)) ## global average pooling
         # x = F.adaptive_max_pool2d(x, (1,1))
         x = x.view(x.size()[0], -1) ## flatten
         x = F.elu(self.fc1(x))
         out = self.fc_out(x)
 
-        # ###### conv output
+        ###### conv output
         # x = self.conv_out(x)
         # out = F.adaptive_avg_pool2d(x, (1, 1)) ## global average pooling
 
@@ -85,7 +89,6 @@ def batch(iterable, device, n=1):
     for ndx in range(0, l, n):
         yield torch.from_numpy(iterable[ndx:min(ndx + n, l)]).float().to(device)
 
-
 def train(model, optimizer, scheduler, data_loader_train, data_loader_val, data_loader_test, args, empty_logs_train, empty_logs_val, empty_logs_test):
     epoch = args.start_epoch
     for epoch in range(args.start_epoch, args.start_epoch + args.epochs):
@@ -97,7 +100,8 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_val, data_
             # x_mb = np.array(list(more_itertools.windowed(data_loader_train[ind][0], n=args.num_frames, step=1)))
             # x_mb = windowed(data_loader_train[ind][0], n=args.num_frames, step=1)
             # y_mb = data_loader_train[ind][1]
-            for i_ in range(2):
+
+            for i_ in range(2): ## normally range(2) when using empty logs during training
                 if i_ == 0:
                     x_mb = windowed(data_loader_train[ind][0], n=args.num_frames, step=1)
                     y_mb = data_loader_train[ind][1]
@@ -109,6 +113,7 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_val, data_
                         x_mb = np.repeat(data_loader_train[ind][0][:,:,:,:,None], args.num_frames, axis=-1)
                         x_mb = np.moveaxis(x_mb, -1,1)
                         y_mb = 0
+
                     # x_mb = windowed(data_loader_train[ind][0][empty_logs_train[ind] == 0], n=args.num_frames, step=1)
                     # y_mb = 0
                 # else:
@@ -219,6 +224,29 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_val, data_
         if stop:
             break
 
+def save_model(model, optimizer, args, scheduler):
+    torch.save({
+        'epoch': args.global_step,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'loss': scheduler.best
+    }, os.path.join(args.path,'model.model'))
+
+def load_model(model, optimizer, args, scheduler):
+    # model = TheModelClass(*args, **kwargs)
+    # optimizer = TheOptimizerClass(*args, **kwargs)
+
+    checkpoint = torch.load(os.path.join(args.path, 'model.model'))
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    scheduler.epoch = checkpoint['epoch']
+    scheduler.best = checkpoint['loss']
+
+    # ## then.....
+    # model.eval()
+    # # - or -
+    # model.train()
+
 class parser_:
     pass
 
@@ -228,10 +256,9 @@ args.learning_rate = np.float32(1e-2)
 args.clip_norm = 0.1
 args.batch_size = 20 ## 6/50,
 args.epochs = 5000
-args.patience = 10
+args.patience = 20
 args.load = ''
 args.tensorboard = r'D:\AlmacoEarCounts\torch\Tensorboard'
-args.early_stopping = 500
 args.manualSeed = None
 args.manualSeedw = None
 args.p_val = 0.2
@@ -290,7 +317,7 @@ optimizer = optim.Adam(model.parameters())
 
 print('Creating scheduler..')
 # # use baseline to avoid saving early on
-scheduler = EarlyStopping(model=model, patience=args.early_stopping, args=args)
+scheduler = EarlyStopping(model=model, patience=args.patience, args=args)
 
 with open(os.path.join(args.path, 'modelsummary.txt'), 'w') as f:
     with redirect_stdout(f):
@@ -299,6 +326,8 @@ with open(os.path.join(args.path, 'modelsummary.txt'), 'w') as f:
 print("training")
 train(model, optimizer, scheduler, data_loader_train, data_loader_val, data_loader_test, args, empty_logs_train,
       empty_logs_val, empty_logs_test)
+
+# save_model(model, optimizer, args, scheduler)
 
 #### C:\Program Files\NVIDIA Corporation\NVSMI
 #### tensorboard --logdir=D:\AlmacoEarCounts\torch\Tensorboard

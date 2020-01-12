@@ -1,6 +1,7 @@
 import numpy as np
 import os
 import torch
+import copy
 
 class EarlyStopping:
   """Stop training when a monitored quantity has stopped improving.
@@ -91,7 +92,7 @@ class EarlyStopping:
       self.wait = 0
       if self.restore_best_weights:
         with torch.no_grad():
-          self.best_weights = [x.cpu().numpy() for x in self.model.parameters()]
+          self.best_weights = copy.deepcopy(self.model.state_dict())
       # if self.args.save_model:
       #   self.save_model()
     else:
@@ -105,8 +106,7 @@ class EarlyStopping:
             print('Restoring model weights from the end of the best epoch.')
           # self.model.set_weights(self.best_weights)
           with torch.no_grad():
-            for xold, xnew in zip([x for x in self.model.parameters()], self.best_weights):
-              xold = xnew
+            self.model.load_state_dict(self.best_weights)
 
     return self.stop_training
 

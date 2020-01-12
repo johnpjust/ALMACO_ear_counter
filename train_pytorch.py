@@ -20,9 +20,9 @@ import torch_res_model
 # import more_itertools
 
 class CNN(nn.Module):
-    def __init__(self, channel_num=32, feat_out=6):
+    def __init__(self, channel_num=64, feat_out=6):
         super(CNN, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=channel_num, kernel_size=7, stride=2)
+        self.conv1 = nn.Conv2d(in_channels=3, out_channels=channel_num, kernel_size=7, stride=3)
         self.maxpool1 = nn.MaxPool2d(kernel_size=3, stride=2)
         self.avgpool1 = nn.AvgPool2d(kernel_size=3, stride=2)
         self.conv2 = nn.Conv2d(in_channels=channel_num, out_channels=channel_num, kernel_size=1)
@@ -39,16 +39,16 @@ class CNN(nn.Module):
         # block_output = self.avgpool1(F.relu(self.conv1(x)))
 
         x = F.relu(self.conv2(block_output))
-        x = block_output + self.conv3(x)
-        x = F.relu(self.conv2(x))
-        # block_output = self.avgpool2(x)
-        block_output = self.maxpool2(x)
+        x = F.relu(self.conv3(x))
+        x = block_output + self.conv2(x)
+        block_output = self.avgpool2(x)
+        # block_output = self.maxpool2(x)
 
         x = F.relu(self.conv2(block_output))
-        x = block_output + self.conv3(x)
-        x = F.relu(self.conv2(x))
-        # block_output = self.avgpool2(x)
-        block_output = self.maxpool2(x)
+        x = F.relu(self.conv3(x))
+        x = block_output + self.conv2(x)
+        block_output = self.avgpool2(x)
+        # block_output = self.maxpool2(x)
 
         x = F.relu(self.conv2(block_output))
         x = self.conv4(x)
@@ -70,8 +70,8 @@ class CNN(nn.Module):
 class Combine(nn.Module):
     def __init__(self, frames, cnn_feat_out=6):
         super(Combine, self).__init__()
-        # self.cnn = CNN(feat_out=cnn_feat_out)
-        self.cnn = torch_res_model.PreActResNet_small(cnn_feat_out)
+        self.cnn = CNN(feat_out=cnn_feat_out)
+        # self.cnn = torch_res_model.PreActResNet_small(cnn_feat_out)
         self.fc1 = nn.Linear(cnn_feat_out*frames, 10)
         self.fc2 = nn.Linear(10, 1)
 
@@ -332,6 +332,7 @@ train(model, optimizer, scheduler, data_loader_train, data_loader_val, data_load
       empty_logs_val, empty_logs_test)
 
 # save_model(model, optimizer, args, scheduler)
+# np.save(os.path.join(args.path, 'data_split_ind_' + str(int(args.p_val*100))), data_split_ind)
 
 #### C:\Program Files\NVIDIA Corporation\NVSMI
 #### tensorboard --logdir=D:\AlmacoEarCounts\torch\Tensorboard

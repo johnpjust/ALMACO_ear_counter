@@ -129,8 +129,12 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_val, data_
                 for x in batch(x_mb, args.device, args.batch_size):
                     x = x.permute(0, 1, -1, -3, -2)
                     count += model(x).sum()
-                # loss = criterion(count, y_mb)/y_mb ## make loss a percent
-                loss = (count - y_mb)**2
+                # loss = (count - y_mb)**2
+                if i_ == 0:
+                    loss = ((count - y_mb)/y_mb) ** 2
+                else:
+                    loss = (count ** 2)/3000
+
                 loss.backward()
                 # for p in model.parameters():
                 #     p.grad /= x_mb.shape[0]  # scale accumulated gradients so each log has equal influence regardless of log length
@@ -168,7 +172,8 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_val, data_
                         count += model(x).sum()
 
                     if i_ == 0:
-                        validation_loss.append((count.cpu().numpy() - y_mb)**2)
+                        # validation_loss.append((count.cpu().numpy() - y_mb)**2)
+                        validation_loss.append(((count.cpu().numpy() - y_mb)/y_mb) ** 2)
                     elif i_ == 1:
                         validation_loss_empty.append(count.cpu().numpy()**2)
                     else:
@@ -202,7 +207,8 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_val, data_
                         count += model(x).sum()
 
                     if i_ == 0:
-                        test_loss.append((count.cpu().numpy() - y_mb)**2)
+                        # test_loss.append((count.cpu().numpy() - y_mb)**2)
+                        test_loss.append(((count.cpu().numpy() - y_mb) / y_mb) ** 2)
                     elif i_ == 1:
                         test_loss_empty.append(count.cpu().numpy()**2)
                     else:
@@ -260,7 +266,7 @@ args.learning_rate = np.float32(1e-2)
 args.clip_norm = 0.1
 args.batch_size = 20 ## 6/50,
 args.epochs = 5000
-args.patience = 20
+args.patience = 40
 args.load = ''
 args.tensorboard = r'D:\AlmacoEarCounts\torch\Tensorboard'
 args.manualSeed = None
@@ -285,7 +291,11 @@ torch.cuda.set_device(args.device)
 ### import and setup data
 print("loading data")
 data = np.array(np.load(r'D:\AlmacoEarCounts\almaco_earcount_labeled_data.npy', allow_pickle=True))
+del_logs = ['WestBilslandP0072', 'WestBilslandP0102'] ## WestBilslandP0072 stopped recording early, WestBilslandP0102 was completely empty
+del_ind = [ind for ind, x in enumerate(data) if x[2] in del_logs]
+data = np.delete(data, del_ind, axis=0)
 empty_logs=np.load(r'D:\AlmacoEarCounts\empty_log_indx.npy', allow_pickle=True)
+empty_logs = np.delete(empty_logs, del_ind, axis=0)
 bg=np.load(r'D:\AlmacoEarCounts\bg.npy')
 data = np.array(data)
 for imgs in data:
